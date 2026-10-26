@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${DB_URL}            # jdbc:postgresql://<RDS host>:5432/keycloak
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState      # DB は含めない (DB 障害で Pod が再起動されないように)
+        readiness:
+          include: readinessState,db  # RDS に繋がるまでトラフィックを受けない
+
+app:
+  api-key: ${API_KEY}         # Auth0 のスクリプトが X-API-Key ヘッダーで送る共有シークレット
+  realm-name: ${KC_REALM_NAME:master}
+  # 新規作成するハッシュのパラメータ。Keycloak のレルム設定(既定値)と揃える
+  hash:
+    memory-kb: 7168
+    iterations: 5
+    parallelism: 1
+    hash-length: 32

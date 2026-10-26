@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-config
+  namespace: keycloak
+data:
+  KC_DB: postgres
+  # RDS エンドポイントに置き換える
+  KC_DB_URL_HOST: DB_NAME.xxxxxxxxxxxx.REGION.rds.amazonaws.com
+  KC_DB_URL_PORT: "5432"
+  KC_DB_URL_DATABASE: keycloak
+  # 公開ホスト名に置き換える (Ingress の host と一致させる)
+  KC_HOSTNAME: keycloak.example.com
+  # TLS は ALB で終端し、Pod へは HTTP で渡す
+  KC_HTTP_ENABLED: "true"
+  KC_PROXY_HEADERS: xforwarded
+  # /health/* と /metrics を管理ポート(9000)で公開
+  KC_HEALTH_ENABLED: "true"

@@ -1,0 +1,35 @@
+# AWS Load Balancer Controller がクラスターに入っている前提 (ALB Ingress)。
+# ingress-nginx 等を使う場合は ingressClassName と annotations を差し替える。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: keycloak
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # HTTPS設定
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # ACM証明書
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-northeast-1:ACCOUNT_ID:certificate/CERT_ID"
+    # サブネットの指定
+    alb.ingress.kubernetes.io/subnets: subnet-xxxxxxxxxxxxxxxxx,subnet-xxxxxxxxxxxxxxxxx,subnet-xxxxxxxxxxxxxxxxx
+    # セキュリティグループの指定（既存のSG ID）
+    alb.ingress.kubernetes.io/security-groups: sg-xxxxxxxxxxxxxxxxx,sg-xxxxxxxxxxxxxxxxx,sg-xxxxxxxxxxxxxxxxx
+    # ヘルスチェック
+    alb.ingress.kubernetes.io/healthcheck-port: "9000"
+    alb.ingress.kubernetes.io/healthcheck-path: "/health/ready"
+    alb.ingress.kubernetes.io/success-codes: "200"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: keycloak.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  name: http
