@@ -16,9 +16,9 @@ Keycloak 本体(EKS + RDS PostgreSQL)は Terraform で管理しており、そ�
 ## 状況
 
 - Keycloak: EKS にデプロイ済み。
-- API: ローカル(Docker の Keycloak / PostgreSQL)で動作確認済み。EKS へのデプロイは未着手。
+- API: ローカル(Docker の Keycloak / PostgreSQL)で動作確認済み。**EKS にもデプロイ済み**で、`https://keycloak-customdb-api.a0japan.solutions` に対する `POST /api/login` の curl が成功することを確認済み。
 - サンプルアプリ(`sample-app/`): ローカルで Keycloak へのログインと、Access Token / ID Token の表示まで確認済み。Auth0 への接続と、Docker イメージのビルドは未確認。
-- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。実際の Auth0 テナントでの動作と、API の EKS へのデプロイ(Auth0 から到達できる必要がある)は未着手。
+- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。Auth0 のカスタムデータベース接続でログインを試したところ、`Wrong email or password` になった。原因は切り分け中(API の監査ログで `reason` を確認する。下記「監査ログ」参照)。
 
 設計の詳細、調査結果、未確認事項、次のステップは `CLAUDE.md` を参照。
 
@@ -141,6 +141,77 @@ mvn spring-boot:run
 | `KC_REALM_NAME` | 対象のレルム名(省略時は `master`) |
 
 ポートは 8080。テストは `mvn test`。
+
+## イメージのビルドと EKS へのデプロイ
+
+`api/Dockerfile` は **jar をコピーするだけ**なので、先にホストで jar を作ってから `docker build` する。Docker の中で Maven を動かすと、社内ネットワークの TLS 検査などで Mac のキーチェーンにしかない CA を信頼できず、PKIX の証明書エラーになるため。
+
+```bash
+cd api
+
+# 1. jar を作る (JDK 25。mvn --version の Java が 25 であることを確認する)
+export JAVA_HOME=/opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk/Contents/Home
+export MAVEN_OPTS="-Djavax.net.ssl.trustStoreType=KeychainStore -Djavax.net.ssl.trustStore=NONE"
+mvn -DskipTests package
+
+# 2. イメージをビルドする (EKS は amd64)
+docker build --platform linux/amd64 --provenance=false \
+  -t 222634407479.dkr.ecr.ap-northeast-1.amazonaws.com/keycloak-customdb-api:latest .
+
+# 3. ECR にプッシュする
+aws ecr get-login-password --region ap-northeast-1 \
+  | docker login --username AWS --password-stdin 222634407479.dkr.ecr.ap-northeast-1.amazonaws.com
+docker push 222634407479.dkr.ecr.ap-northeast-1.amazonaws.com/keycloak-customdb-api:latest
+
+# 4. Pod を再作成して新しいイメージにする
+kubectl -n keycloak rollout restart deploy/keycloak-customdb-api
+kubectl -n keycloak rollout status deploy/keycloak-customdb-api
+```
+
+- 手順 1 を飛ばすと、`target/keycloak-auth0-api-*.jar` がなく、`docker build` が `COPY` で失敗する。コードを直したあとは、毎回手順 1 からやり直す(古い jar のままビルドすると、変更が反映されない)。
+- タグが `latest` のままだと、Deployment の定義が変わらないため、`rollout restart` をしないと Pod が作り直されない。
+- 本番は `https://keycloak-customdb-api.a0japan.solutions`。デプロイ後は `curl -i https://keycloak-customdb-api.a0japan.solutions/actuator/health/readiness` で到達性と DB 接続を確認する。
+
+## 監査ログ
+
+認証の成否と、API キーの拒否を、専用のロガー `audit` で出す。1 行 1 イベントの `key=value` 形式。成功は INFO、失敗と拒否は WARN。
+
+```
+event=login result=success username=a@example.com user_id=<Keycloak の ID> client_ip=203.0.113.5
+event=login result=failure reason=PASSWORD_MISMATCH username=a@example.com client_ip=203.0.113.5
+event=api_key result=rejected reason=API_KEY_MISMATCH method=POST path=/api/login client_ip=203.0.113.5
+```
+
+```bash
+kubectl -n keycloak logs deploy/keycloak-customdb-api | grep audit        # EKS
+kubectl -n keycloak logs deploy/keycloak-customdb-api -f | grep audit     # 流し見
+```
+
+| `reason` | 意味 |
+|---|---|
+| `USER_NOT_FOUND` | ユーザーがいない(メールの綴りや大文字小文字、レルムの違いなど) |
+| `USER_DISABLED` | 無効なユーザー |
+| `NO_PASSWORD_CREDENTIAL` | パスワードの登録がない |
+| `PASSWORD_MISMATCH` | パスワードが一致しない |
+| `UNSUPPORTED_ALGORITHM` | ハッシュが argon2 ではない(未対応) |
+| `INVALID_RECORD` | 保存されたハッシュのデータが読めない |
+| `API_KEY_MISSING` | `X-API-Key` ヘッダーがない |
+| `API_KEY_MISMATCH` | `X-API-Key` の値が違う |
+
+- **失敗の理由は、ログにだけ出す**。レスポンスは常に同じ 401。理由をレスポンスに含めると、ユーザーの存在を外部から調べられてしまう。
+- パスワードと、受け取った API キーの値は、ログに出さない。
+- ユーザー名の改行などの制御文字は `_` に置換し、200 文字に切る(偽のログ行を作られないため)。
+- `client_ip` は `X-Forwarded-For` の先頭。ヘッダーは送信側が偽装できるため、監査では参考値。
+- ログイン以外(作成、確認、取得、パスワード変更、メール変更、削除)も、成功と、ユーザー不在などの失敗が出る。
+
+### Auth0 の `Wrong email or password` の切り分け
+
+| ログの状態 | 原因 |
+|---|---|
+| **1 行も出ない** | Auth0 から API に届いていない(Auth0 の Settings の `API_BASE_URL`、Ingress、SG、Auth0 の送信元 IP の許可) |
+| `API_KEY_MISMATCH` / `API_KEY_MISSING` | Auth0 の Settings の `API_KEY` が API の `API_KEY` と違う |
+| `USER_NOT_FOUND` | Auth0 が渡す identifier が想定と違う |
+| `PASSWORD_MISMATCH` | ユーザーはいるが、ハッシュの照合に失敗している |
 
 ## エンドポイント
 

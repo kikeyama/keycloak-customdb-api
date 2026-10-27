@@ -129,8 +129,8 @@ Auth0 のカスタムデータベース接続の Database Action Scripts。`api/
 - **未確認**: 実際の Auth0 テナントでの動作、実際の `api/` に対する呼び出し、Auth0 の実行環境で `axios@0.22.0` が使えること(ドキュメントのサンプルに合わせただけ)。
 - **Auth0 から API に到達できる必要がある**(`localhost` や VPC 内だけの URL は不可)。API を EKS にインターネットから届く形で公開するのが前提(次のステップ 3)。
 
-### API を EKS にデプロイするときの Terraform (会話内で作成。適用は未確認)
-ファイルとしてはリポジトリに残していない。構成の要点:
+### API を EKS にデプロイするときの Terraform (会話内で作成した案。**実際のデプロイは完了しているが、適用された内容は私は未確認**)
+ファイルとしてはリポジトリに残していない。実際のホスト名は、仮置きした `keycloak-api.<ドメイン>` ではなく `keycloak-customdb-api.a0japan.solutions`。構成の要点(案):
 - 専用の Secrets Manager シークレット(`DB_USERNAME` / `DB_PASSWORD` / `API_KEY`、キー名は環境変数名)と ExternalSecret。**ESO の IAM ロールの許可対象に、このシークレットの ARN を追加する必要がある**(追加しないと同期に失敗する)。
 - 専用の Pod SG(ALB から 8080、kubelet のプローブ用にノード SG から 8080)、専用の ALB の SG(Auth0 の送信元 IP から 443)。RDS の SG に Pod SG からの 5432、ノード SG に Pod SG からの DNS(53)を追加。`SecurityGroupPolicy` で Pod に割り当てる(`podSelector` は `app: keycloak-customdb-api`)。
 - Deployment(プローブは 8080 の `/actuator/health/*`)、Service、Ingress(ALB)。ホスト名は `keycloak-api.${var.my_domain}`(仮置き)。**ACM 証明書がこのホスト名をカバーしている必要がある**。Keycloak 用とは別の ALB が作られる。
@@ -143,7 +143,7 @@ Auth0 のカスタムデータベース接続の Database Action Scripts。`api/
 - `k8s/` の YAML は初期案。**現在は Terraform 管理に移行済み**で、`k8s/` は参考用に残してある(適用しない)。
 - Terraform リポジトリは別ディレクトリ(このリポジトリには含まれない)。構成は `env/<region>/main.tf` から `modules/{eks,keycloak,...}` を呼ぶ形(同一ルートモジュール・単一 state)。Keycloak 関連は `modules/keycloak`(RDS、Secrets Manager、SG、ConfigMap、Ingress、Deployment、Service、ESO のリソース)。
 - 会話内で作った HCL の一部(Deployment / Service / ExternalSecret 等)は、このリポジトリにファイルとして残していない。
-- API(`api/`)はローカル(Docker の Keycloak 26.8.1 / PostgreSQL 18)で動作することをユーザーが確認済み。起動手順、エンドポイント、Docker のコマンドは `README.md` を参照。まだ EKS にはデプロイしていない。
+- API(`api/`)はローカル(Docker の Keycloak 26.8.1 / PostgreSQL 18)で動作することをユーザーが確認済み。起動手順、エンドポイント、Docker のコマンド、イメージのビルドとデプロイの手順は `README.md` を参照。**EKS にもデプロイ済み**(ユーザーの報告)で、`https://keycloak-customdb-api.a0japan.solutions/api/login` への curl が成功することを確認済み。デプロイに使った Terraform の中身(SG、Auth0 の送信元 IP の許可など)は、私は見ていない。
   - **確認済み**: `POST /api/login`(Keycloak が作った Argon2 のレコードで認証成功 = 読み取り側の互換性)、`GET /api/users`、liveness / readiness probe、`POST /api/users`(API が作ったユーザーで Keycloak のトークンエンドポイント `grant_type=password` が成功 = 書き込み側の互換性)。
   - **未確認**: Verify / Delete / Change Password / Change Email の動作。Change Password は Create と同じ `hash()` を使うが、`replacePassword`(削除して挿入)は未検証。
 
@@ -151,9 +151,9 @@ Auth0 のカスタムデータベース接続の Database Action Scripts。`api/
 
 1. Keycloak が作った実レコードを使った自動テストを追加する(手動では確認済み)。
 2. 残りのエンドポイント(Verify / Delete / Change Password / Change Email)をローカルで確認する。Change Password の後に Keycloak のトークンエンドポイントで新しいパスワードが通ることも確認する。
-3. API を EKS にデプロイする(Terraform は会話内で作成済みだが、適用・動作は未確認。上の「API を EKS にデプロイするときの Terraform」参照)。**Auth0 から到達できる必要があるので、インターネットから届く経路と `X-API-Key` による保護が前提**(IP 制限をかけるなら Auth0 の送信元 IP を確認する)。
-4. Auth0 のテナントに接続を作り、`auth0-scripts/` のスクリプトを登録する(Change Email は Management API か Deploy CLI)。Settings に `API_BASE_URL` と `API_KEY` を設定する。
-5. 実際の Auth0 テナントで、既存 Keycloak ユーザーのパスワードでログインできるか検証する(このプロジェクトの目的)。
+3. ~~API を EKS にデプロイする~~ **完了**(curl で `/api/login` が成功)。Auth0 から到達できる経路(Auth0 の送信元 IP の許可)になっているかは、4 の結果で分かる。
+4. Auth0 のカスタムデータベース接続を作り、`auth0-scripts/` を登録する(**接続は作成済みで、ログインを試した**。Change Email が登録済みかは未確認)。**現在は `Wrong email or password` の原因を切り分け中**: 新しい監査ログ入りのイメージをデプロイして(`README.md` の手順)、`kubectl -n keycloak logs deploy/keycloak-customdb-api | grep audit` の `reason` を見る。ログが 1 行も出ないなら Auth0 から API に届いていない(`API_BASE_URL`、Ingress、SG、Auth0 の IP 許可)。`API_KEY_MISMATCH` なら Auth0 の Settings の `API_KEY` が違う。`USER_NOT_FOUND` なら Auth0 が渡す identifier が想定と違う。`PASSWORD_MISMATCH` ならハッシュの照合の問題。
+5. Auth0 のログインが通ることを確認する(このプロジェクトの目的)。
 6. `sample-app/` の接続先を Auth0 に切り替えて、同じアプリでログインできるか確認する。
 
 ## 設計方針

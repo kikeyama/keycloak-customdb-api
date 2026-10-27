@@ -25,7 +25,7 @@ Auth0 のカスタムデータベース接続(Database Action Scripts)のスク�
 | `API_BASE_URL` | API の URL(例: `https://keycloak-api.example.com`)。末尾に `/` を付けない |
 | `API_KEY` | API の `API_KEY` 環境変数と同じ値(`X-API-Key` ヘッダーで送る) |
 
-**Auth0 から API に到達できる必要がある**。ローカルの `localhost:8080` や、VPC の中だけの URL は使えない。EKS にデプロイした API を、インターネットから届く URL で公開する(CLAUDE.md の「次のステップ」の3)。
+**Auth0 から API に到達できる必要がある**。ローカルの `localhost:8080` や、VPC の中だけの URL は使えない。API は EKS にデプロイ済みで、`https://keycloak-customdb-api.a0japan.solutions` で公開している(curl で `/api/login` が成功することは確認済み)。Auth0 の送信元 IP からも届くかは、Auth0 から実際に試して確認する。
 
 ## 登録方法
 
