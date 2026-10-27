@@ -1,3 +1,17 @@
+/* 接続先 (AUTH_PROVIDER) ごとのイメージカラー。<body data-provider="..."> で切り替える。
+   auth0 は青 (従来の色)、keycloak は赤。 */
+:root,
+body[data-provider="auth0"] {
+  --accent: #1a56db;
+  --accent-hover: #1646b8;
+  --accent-soft: #e0e9fc;
+}
+body[data-provider="keycloak"] {
+  --accent: #c62828;
+  --accent-hover: #a31f1f;
+  --accent-soft: #fbe3e3;
+}
+
 body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   max-width: 960px;
@@ -6,12 +20,16 @@ body {
   color: #1a1a1a;
 }
 
-h1 { margin-bottom: 0.25rem; }
+h1 {
+  margin-bottom: 0.25rem;
+  border-left: 6px solid var(--accent);
+  padding-left: 0.6rem;
+}
 .muted { color: #666; }
 nav { display: flex; gap: 1rem; align-items: center; margin: 1rem 0 2rem; }
 
 button, .button {
-  background: #1a56db;
+  background: var(--accent);
   color: #fff;
   border: 0;
   border-radius: 6px;
@@ -20,7 +38,9 @@ button, .button {
   cursor: pointer;
   text-decoration: none;
 }
+button:hover, .button:hover { background: var(--accent-hover); }
 button.secondary { background: #6b7280; }
+button.secondary:hover { background: #4b5563; }
 
 pre {
   background: #f3f4f6;
@@ -34,4 +54,11 @@ pre {
 
 table { border-collapse: collapse; }
 th, td { text-align: left; padding: 0.25rem 1rem 0.25rem 0; vertical-align: top; }
-.badge { background: #e5e7eb; border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.85rem; }
+.badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}

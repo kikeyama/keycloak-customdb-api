@@ -77,7 +77,7 @@ event=create_user result=failure:user_exists username=a@example.com client_ip=..
 **Auth0 の失敗の原因(どちらも、API が返すプロフィールを Auth0 が検証して拒否していた)**:
 1. ログイン: API は success を返していたが、Auth0 のテナントログ(`type: fu`)の `description` が `"username" cannot be an email address.`、画面は `Wrong email or password`。→ `username` がメール形式なら省く。
 2. サインアップ: Auth0 のテナントログ(`type: fs`)の `description` が `DB Custom script (login): invalid fields ... Expected type string but found type null on property family_name / given_name`。→ null の項目を省く。
-どちらも修正を入れたが、**デプロイ後の Auth0 でのログインとサインアップは未確認**。API の応答が success でも Auth0 側で失敗することがあるので、**切り分けは、まず Auth0 のテナントログ(Monitoring > Logs)の `type` と `description` を見る**。
+どちらも修正を入れ、**デプロイ後の Auth0 でのサインアップとログインが成功することをユーザーが確認済み**。API の応答が success でも Auth0 側で失敗することがあるので、**切り分けは、まず Auth0 のテナントログ(Monitoring > Logs)の `type` と `description` を見る**。
 
 ### API の未確認事項
 - **読み取り側の互換性は確認済み**: Keycloak が作ったレコードで `/api/login` が成功した(Argon2 のパラメータ、salt、Base64 の扱いは一致)。
@@ -101,14 +101,17 @@ Keycloak でログインし、Access Token と ID Token を表示する Next.js 
 - スタック: Next.js 16.4.3(App Router)、React 19、next-auth **v4**(4.24.15)、TypeScript。Node 22。next-auth v5 は beta のため v4 を使った。
 - 画面: `/`(ログインボタン)、`/home`(ログイン後のトップ)、`/tokens`(Access Token / ID Token を raw とデコード済みで表示。署名は検証しない)。API は `/api/auth/*`(next-auth)と `/api/federated-logout`(IdP のログアウト URL を返す)。
 - 接続先の切り替え: 環境変数 `AUTH_PROVIDER`(`keycloak` | `auth0`、既定 `keycloak`)。コードは `lib/auth.ts` の 1 か所だけ。
+- **画面のトグルで切り替える機能は、あえて作らない(ユーザーの判断)**。接続先の切り替えは、環境変数を変えて再起動する運用のままにする。ログイン中に接続先を切り替えると、保存済みのセッションとトークンが、切り替え後の接続先のものではなくなる(Keycloak のトークンを Auth0 のセッションとして扱ってしまう)。**この「IdP を切り替えたときの、ログイン中のセッションやトークンの扱い」は、このデモが問題提起したい課題そのもの**なので、トグルで隠さない。トグルを作るなら、接続先を Cookie に持たせ(値は `keycloak` / `auth0` に限定して検証する)、切り替え時にログアウトする設計を検討済み(実装はしていない)。
 - 環境変数: `NEXTAUTH_URL`、`NEXTAUTH_SECRET`、Keycloak 用 `KEYCLOAK_ISSUER`(レルムまで含む)/ `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET`、Auth0 用 `AUTH0_ISSUER` / `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET`。`KEYCLOAK_ID` / `KEYCLOAK_SECRET` から改名した(旧名はコードに残っていない)。
 - **環境変数はリクエスト時に読む**(`getAuthOptions()` を関数にしてある)。モジュール読み込み時に読むと `next build` が環境変数を要求して失敗し、同じイメージで接続先を切り替えられなくなるため。`authOptions` という定数に戻さないこと。
+- **イメージカラーは接続先で切り替わる**: `auth0` は青(`#1a56db`、従来の色)、`keycloak` は赤(`#c62828`)。`app/layout.tsx` が `<body data-provider={getAuthProviderId()}>` を出し、`app/globals.css` の CSS 変数(`--accent` / `--accent-hover` / `--accent-soft`)を `body[data-provider="..."]` で切り替える。`AUTH_PROVIDER` は起動時の環境変数なので、`layout.tsx` に `export const dynamic = "force-dynamic"` を付けてリクエストごとに読む(付けないとビルド時に固定され、同じイメージで接続先を切り替えても色が変わらない。副作用で `/_not-found` も動的になる)。同じビルドから `AUTH_PROVIDER` だけ変えて 2 つ起動し、`data-provider` と `Login with ...` が切り替わることを確認済み。**ブラウザでの見た目(色が実際に赤・青に見えるか)は未確認**。
 - ログアウトは IdP のセッションも終了する(`signOut` だけでは Keycloak / Auth0 側のセッションが残る)。
 - トークンをセッション Cookie(JWT)に入れている。トークンを見せるためのサンプルとして割り切った設計で、本番向けではない。
-- Auth0 は API の audience を指定しないと Access Token が opaque になる(デコードできない)。**環境変数 `AUTH0_AUDIENCE`(Auth0 の API の Identifier)で audience を指定できる**(`lib/auth.ts` の `authorization.params`)。省略時は従来どおり opaque。next-auth が既定の scope(`openid email profile`)と audience をマージすることは、実際の処理で確認済み。**Auth0 の実機で JWT の Access Token が出るかは未確認**。Auth0 側で API(Identifier、RS256)を作り、アプリケーションに許可する必要がある。
+- Auth0 は API の audience を指定しないと Access Token が opaque になる(デコードできない)。**環境変数 `AUTH0_AUDIENCE`(Auth0 の API の Identifier)で audience を指定できる**(`lib/auth.ts` の `authorization.params`)。省略時は従来どおり opaque。next-auth が既定の scope(`openid email profile`)と audience をマージすることは、実際の処理で確認済み。**Auth0 の実機で、`AUTH0_AUDIENCE` を指定して JWT の Access Token が正常に出ることをユーザーが確認済み**。Auth0 側で API(Identifier、RS256)を作り、アプリケーションに許可する必要がある。
 - `Dockerfile`(3 段階、`output: "standalone"`、非 root、ポート 3000)を用意。接続情報はすべて起動時の環境変数で渡す。
 - **確認済み**: 型チェック、環境変数なしの `next build`、standalone サーバーの起動、`/` が 200 で `Login with Keycloak` を表示、`/api/auth/providers`、未ログインの `/home` のリダイレクト。**ユーザーがローカルで Keycloak へのログインまで確認済み**(Keycloak のログイン画面に移動 → ログイン後に `/home` が表示 → `/tokens` で Access Token と ID Token が表示)。
-- **未確認**: Auth0 への接続(`AUTH_PROVIDER=auth0`)、Docker イメージのビルド(作業時に Docker が動いておらず、ユーザーからも確認の報告はまだない)、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続。
+- **Auth0 への接続も確認済み**(`AUTH_PROVIDER=auth0`): Auth0 のカスタムデータベース接続でのサインアップとログインが成功し、`AUTH0_AUDIENCE` を指定すると JWT の Access Token が出る(ユーザー確認)。これで、**既存 Keycloak の DB のユーザーで Auth0 にログインできるか、というこのプロジェクトの目的のうち、サインアップとログインの経路は動いた**。
+- **未確認**: Docker イメージのビルド(作業時に Docker が動いておらず、ユーザーからも確認の報告はまだない)、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続、**Keycloak で作った既存ユーザー(Keycloak 側で登録済みのパスワード)が Auth0 経由でログインできるか**(今回確認したのが、Auth0 からサインアップしたユーザーか、既存の Keycloak ユーザーか、私は把握していない)。
 - Mac の Docker でアプリを動かし、ローカルの Keycloak(`localhost:8081`)に繋ぐと、`KEYCLOAK_ISSUER` がブラウザとコンテナで別の名前になって動かない場合がある。EKS 上の Keycloak(公開 URL)なら起きない。
 
 ## Auth0 側 (`auth0-scripts/`)
@@ -133,7 +136,8 @@ Auth0 のカスタムデータベース接続の Database Action Scripts。`api/
 - Verify は DB のメールを確認済みにするだけで、Auth0 側の `email_verified` は変わらない。Login / Get User が返すプロフィールの `email_verified` で反映される。
 - パスワードは平文で API に送られる(Auth0 の仕様)ため、API の URL は必ず HTTPS にする。
 - **確認済み**: 構文(`node --check`)。Auth0 の実行環境を模したスタブ(`configuration`、`WrongUsernameOrPasswordError`、`ValidationError`、axios 0.22.0)とモックの API サーバーで、成功・パスワード不一致・重複・不在・接続失敗の 14 ケースが期待どおりの callback になること。
-- **未確認**: 実際の Auth0 テナントでの動作、実際の `api/` に対する呼び出し、Auth0 の実行環境で `axios@0.22.0` が使えること(ドキュメントのサンプルに合わせただけ)。
+- **確認済み(ユーザー)**: 実際の Auth0 テナントと実際の `api/` で、サインアップ(Create → Login)とログイン(Login、Get User)が成功する。したがって `axios@0.22.0` も Auth0 の実行環境で動いた。
+- **未確認**: Verify / Delete / Change Password / Change Email を、実際の Auth0 から呼んだときの動作。Change Email が Management API 経由で登録済みかも未確認。
 - **Auth0 から API に到達できる必要がある**(`localhost` や VPC 内だけの URL は不可)。API を EKS にインターネットから届く形で公開するのが前提(次のステップ 3)。
 
 ### API を EKS にデプロイするときの Terraform (会話内で作成した案。**実際のデプロイは完了しているが、適用された内容は私は未確認**)
@@ -159,8 +163,8 @@ Auth0 のカスタムデータベース接続の Database Action Scripts。`api/
 1. Keycloak が作った実レコードを使った自動テストを追加する(手動では確認済み)。
 2. 残りのエンドポイント(Verify / Delete / Change Password / Change Email)をローカルで確認する。Change Password の後に Keycloak のトークンエンドポイントで新しいパスワードが通ることも確認する。
 3. ~~API を EKS にデプロイする~~ **完了**(curl で `/api/login` が成功)。Auth0 から到達できる経路(Auth0 の送信元 IP の許可)になっているかは、4 の結果で分かる。
-4. Auth0 のカスタムデータベース接続を作り、`auth0-scripts/` を登録する(**接続は作成済みで、ログインを試した**。Change Email が登録済みかは未確認)。**現在は `Wrong email or password` の原因を切り分け中**: 新しい監査ログ入りのイメージをデプロイして(`README.md` の手順)、`kubectl -n keycloak logs deploy/keycloak-customdb-api | grep audit` の `reason` を見る。ログが 1 行も出ないなら Auth0 から API に届いていない(`API_BASE_URL`、Ingress、SG、Auth0 の IP 許可)。`API_KEY_MISMATCH` なら Auth0 の Settings の `API_KEY` が違う。`USER_NOT_FOUND` なら Auth0 が渡す identifier が想定と違う。`PASSWORD_MISMATCH` ならハッシュの照合の問題。
-5. Auth0 のログインが通ることを確認する(このプロジェクトの目的)。
+4. ~~Auth0 のカスタムデータベース接続を作り、`auth0-scripts/` を登録する~~ **完了**。Auth0 からのサインアップとログインが成功した(Wrong email or password の原因は、API が返すプロフィールの `username` と null の名前を Auth0 が拒否していたこと。修正済み)。Change Email が登録済みかは未確認。
+5. ~~Auth0 のログインが通ることを確認する~~ **サインアップとログインは完了**。残る確認: **Keycloak に元からあるユーザー(Keycloak で登録した既存のパスワード)で Auth0 からログインできるか**(このプロジェクトの本来の目的に最も近い検証)。
 6. `sample-app/` の接続先を Auth0 に切り替えて、同じアプリでログインできるか確認する。
 
 ## 設計方針

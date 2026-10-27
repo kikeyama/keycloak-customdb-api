@@ -59,7 +59,8 @@ Auth0 のカスタムデータベース接続(Database Action Scripts)のスク�
 
 - 7 つのスクリプトが構文として読み込めること(`node --check`)。
 - Auth0 の実行環境を模したスタブ(`configuration`、`WrongUsernameOrPasswordError`、`ValidationError`、axios)と、**モックの API サーバー**に対して、成功、失敗、重複、不在、接続失敗の各ケースで期待どおりの `callback` になること。
-- **未確認**: 実際の Auth0 テナントでの動作。実際の `api/` に対する呼び出し。Auth0 の実行環境(Node のバージョンや、利用できるモジュール)との差。
+- **実際の Auth0 テナントと実際の `api/` で確認済み**(ユーザー確認): サインアップ(Create → Login)とログイン(Login、Get User)が成功する。`axios@0.22.0` も、Auth0 の実行環境で動いた。
+- **未確認**: Verify / Delete / Change Password / Change Email を、実際の Auth0 から呼んだときの動作。Change Email が登録済みか。
 
 ## 注意
 

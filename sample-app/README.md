@@ -29,6 +29,19 @@ Keycloak(または Auth0)でログインして、Access Token と ID Token を�
 | `/api/auth/*` | next-auth のエンドポイント(ログイン、コールバック、セッションなど) |
 | `GET /api/federated-logout` | IdP のログアウト URL を返す。Logout ボタンが使う |
 
+### イメージカラー
+
+接続先(`AUTH_PROVIDER`)に合わせて、アプリの色が切り替わる。どちらに繋いでいるか、画面の色で分かる。
+
+| `AUTH_PROVIDER` | 色 | アクセントカラー |
+|---|---|---|
+| `auth0` | 青(従来の色) | `#1a56db` |
+| `keycloak` | 赤 | `#c62828` |
+
+- ボタン、見出しの左の線、接続先のバッジに使われる。
+- 仕組み: `app/layout.tsx` が `<body data-provider="...">` を出し、`app/globals.css` の CSS 変数(`--accent` など)を `body[data-provider="..."]` で切り替える。色を変えるときは `globals.css` の変数だけを直す。
+- `AUTH_PROVIDER` は起動時の環境変数なので、`layout.tsx` は `dynamic = "force-dynamic"` でリクエストごとに読む(ビルド時に固定すると、同じイメージで接続先を切り替えても色が変わらない)。この指定の副作用で、`/_not-found` も動的になる。
+
 ### ログアウト
 
 next-auth の `signOut` はアプリの Cookie を消すだけで、Keycloak / Auth0 側のセッションは残る。残ったままだと、次のログインでパスワードを入力せずにログインされてしまう。そのため Logout ボタンは、アプリのセッションを消したあと、IdP のログアウト URL に移動する。
@@ -177,4 +190,5 @@ docker run --rm -p 3000:3000 --env-file .env.local keycloak-sample-app
 
 - 型チェックと、環境変数なしでのビルド、standalone サーバーの起動、`/`(200)、`/api/auth/providers`、未ログインの `/home` のリダイレクトは確認済み。
 - **ローカルで Keycloak へのログインを確認済み**: Keycloak のログイン画面に移動し、ログイン後に `/home` が表示され、`/tokens` で Access Token と ID Token が表示される。
-- **未確認**: Auth0 への接続(`AUTH_PROVIDER=auth0`)、Docker イメージのビルド、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続。
+- **Auth0 への接続も確認済み**(`AUTH_PROVIDER=auth0`): ログインと、Access Token / ID Token の表示。`AUTH0_AUDIENCE` を指定すると、JWT の Access Token が出る。
+- **未確認**: Docker イメージのビルド、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続。

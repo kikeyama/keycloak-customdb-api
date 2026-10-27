@@ -17,8 +17,8 @@ Keycloak 本体(EKS + RDS PostgreSQL)は Terraform で管理しており、そ�
 
 - Keycloak: EKS にデプロイ済み。
 - API: ローカル(Docker の Keycloak / PostgreSQL)で動作確認済み。**EKS にもデプロイ済み**で、`https://keycloak-customdb-api.a0japan.solutions` に対する `POST /api/login` の curl が成功することを確認済み。
-- サンプルアプリ(`sample-app/`): ローカルで Keycloak へのログインと、Access Token / ID Token の表示まで確認済み。Auth0 への接続と、Docker イメージのビルドは未確認。
-- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。Auth0 のカスタムデータベース接続でログインを試したところ、API は success を返すのに `Wrong email or password` になった。**原因は、API が返すプロフィールの `username` がメールアドレスだったこと**(Auth0 のテナントログ: `"username" cannot be an email address.`)。`username` がメール形式のときは返さないように修正した。サインアップでも、名前が null のプロフィールを Auth0 が拒否したので(`Expected type string but found type null`)、null の項目は省くように修正した。**修正を入れたイメージをデプロイしての、Auth0 でのログインとサインアップは未確認**。
+- サンプルアプリ(`sample-app/`): ローカルで **Keycloak と Auth0 の両方**で、ログインと Access Token / ID Token の表示まで確認済み。Auth0 は `AUTH0_AUDIENCE` を指定して JWT の Access Token が出ることも確認済み。Docker イメージのビルドは未確認。
+- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成。**Auth0 のカスタムデータベース接続での、サインアップとログインは成功することを確認済み**(Login / Create / Get User が実際の Auth0 と API で動いた)。最初は API が success を返すのに `Wrong email or password` になったが、原因は API が返すプロフィールを Auth0 が拒否していたこと: `username` がメールアドレスだった(`"username" cannot be an email address.`)、サインアップで名前が null だった(`Expected type string but found type null`)。どちらも、該当の項目を省くよう API を修正して解消した。Verify / Delete / Change Password / Change Email は未確認。
 
 設計の詳細、調査結果、未確認事項、次のステップは `CLAUDE.md` を参照。
 
