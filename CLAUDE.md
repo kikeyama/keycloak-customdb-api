@@ -105,7 +105,7 @@ Keycloak でログインし、Access Token と ID Token を表示する Next.js 
 - **環境変数はリクエスト時に読む**(`getAuthOptions()` を関数にしてある)。モジュール読み込み時に読むと `next build` が環境変数を要求して失敗し、同じイメージで接続先を切り替えられなくなるため。`authOptions` という定数に戻さないこと。
 - ログアウトは IdP のセッションも終了する(`signOut` だけでは Keycloak / Auth0 側のセッションが残る)。
 - トークンをセッション Cookie(JWT)に入れている。トークンを見せるためのサンプルとして割り切った設計で、本番向けではない。
-- Auth0 は API の audience を指定しないと Access Token が opaque になる(デコードできない)。audience の指定は未実装。
+- Auth0 は API の audience を指定しないと Access Token が opaque になる(デコードできない)。**環境変数 `AUTH0_AUDIENCE`(Auth0 の API の Identifier)で audience を指定できる**(`lib/auth.ts` の `authorization.params`)。省略時は従来どおり opaque。next-auth が既定の scope(`openid email profile`)と audience をマージすることは、実際の処理で確認済み。**Auth0 の実機で JWT の Access Token が出るかは未確認**。Auth0 側で API(Identifier、RS256)を作り、アプリケーションに許可する必要がある。
 - `Dockerfile`(3 段階、`output: "standalone"`、非 root、ポート 3000)を用意。接続情報はすべて起動時の環境変数で渡す。
 - **確認済み**: 型チェック、環境変数なしの `next build`、standalone サーバーの起動、`/` が 200 で `Login with Keycloak` を表示、`/api/auth/providers`、未ログインの `/home` のリダイレクト。**ユーザーがローカルで Keycloak へのログインまで確認済み**(Keycloak のログイン画面に移動 → ログイン後に `/home` が表示 → `/tokens` で Access Token と ID Token が表示)。
 - **未確認**: Auth0 への接続(`AUTH_PROVIDER=auth0`)、Docker イメージのビルド(作業時に Docker が動いておらず、ユーザーからも確認の報告はまだない)、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続。

@@ -40,7 +40,7 @@ next-auth の `signOut` はアプリの Cookie を消すだけで、Keycloak / A
 
 - Access Token と ID Token は、デコードして表示するだけで、**署名は検証していない**。
 - 表示のために、トークンをセッション Cookie(JWT)に入れている。Cookie が大きくなるうえ、本番のアプリでは避けるべき設計。トークンを確認するためのサンプルとして割り切っている。
-- Auth0 は、API の audience を指定しないと、Access Token が JWT ではなく opaque になる。その場合、`/tokens` にはデコードなしの文字列だけが表示される(audience の指定は未実装)。
+- Auth0 は、API の audience を指定しないと、Access Token が JWT ではなく opaque になる。その場合、`/tokens` にはデコードなしの文字列だけが表示される。**環境変数 `AUTH0_AUDIENCE` に API の Identifier を設定すると、その API 向けの JWT の Access Token が発行される**(下記「Auth0 側の設定」)。
 
 ### 構成
 
@@ -95,6 +95,7 @@ cp .env.example .env.local
 | `AUTH0_ISSUER` | テナントの URL(例: `https://your-tenant.us.auth0.com`) |
 | `AUTH0_CLIENT_ID` | アプリケーションの Client ID |
 | `AUTH0_CLIENT_SECRET` | アプリケーションの Client Secret |
+| `AUTH0_AUDIENCE` | 任意。Auth0 の API の Identifier(例: `https://sample-app-api`)。**設定すると Access Token が JWT になる**。省略すると opaque になる |
 
 選んでいない接続先の変数は不要。必須の変数が欠けていると、リクエスト時に `Missing environment variable: <名前>` のエラーになる。
 
@@ -120,6 +121,19 @@ Auth0 のダッシュボードで、Regular Web Application を作る。
 - Allowed Callback URLs: `<NEXTAUTH_URL>/api/auth/callback/auth0`
 - Allowed Logout URLs: `<NEXTAUTH_URL>`
 - Domain、Client ID、Client Secret を、それぞれ `AUTH0_ISSUER`(`https://` 付き)、`AUTH0_CLIENT_ID`、`AUTH0_CLIENT_SECRET` に設定する。
+
+**Access Token を JWT にする(opaque にしない)には**
+
+Access Token が opaque になるのは、認可リクエストに `audience` が付いていないため。次のようにする。
+
+1. Auth0 のダッシュボードの **Applications > APIs** で API を作る。**Identifier**(例: `https://sample-app-api`)が audience になる。この値は、作成後に変更できない。Identifier は URL の形でよいが、実際に到達できる必要はない(Auth0 はその URL を呼ばない)。署名アルゴリズムは RS256 を選ぶ(作成後に変更できない)。
+2. `AUTH0_AUDIENCE` に、その Identifier を設定し、dev サーバーを再起動する。
+3. ログインし直す(既存のセッションの Access Token は、そのまま opaque)。`/tokens` で JWT として表示される。
+
+- API の **JWT Profile**(`Auth0` / `RFC 9068`)で、Access Token の claims の構造が変わる。
+- アプリケーションが、その API へアクセスする権限(Applications > (アプリ) > APIs)を持っている必要がある場合がある。ログインで `access_denied` のようなエラーが出たら、ここを確認する。
+- `audience` を指定すると、`/userinfo` 用の opaque な Access Token ではなく、その API 向けのトークンになる。`/userinfo` を呼ぶ用途には、`openid` スコープが必要。
+- `audience` の値の指定は、`lib/auth.ts` の `authorization.params` で行う。Auth0 プロバイダーの既定の scope(`openid email profile`)は、マージされるので消えない(next-auth の処理で確認済み)。
 
 ## 起動方法
 

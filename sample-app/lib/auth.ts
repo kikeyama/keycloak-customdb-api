@@ -28,10 +28,15 @@ export const providerLabels: Record<AuthProviderId, string> = {
 
 function buildProvider() {
   if (getAuthProviderId() === "auth0") {
+    // audience (API の Identifier) を指定しないと、Access Token は opaque (JWT ではない) になる。
+    // 指定すると、その API 向けの JWT の Access Token が発行される。省略時は従来どおり opaque。
+    const audience = process.env.AUTH0_AUDIENCE?.trim();
     return Auth0Provider({
       clientId: required("AUTH0_CLIENT_ID"),
       clientSecret: required("AUTH0_CLIENT_SECRET"),
       issuer: required("AUTH0_ISSUER"),
+      // 既定の scope ("openid email profile") は、渡した params とマージされるので消えない。
+      ...(audience ? { authorization: { params: { audience } } } : {}),
     });
   }
   return KeycloakProvider({
