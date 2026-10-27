@@ -1,0 +1,8 @@
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  // Docker イメージを小さくするため、必要なファイルだけを .next/standalone に出力する
+  output: "standalone",
+};
+
+export default nextConfig;

@@ -8,6 +8,12 @@ target/
 *.log
 dependency-reduced-pom.xml
 
+# Node / Next.js (sample-app/)
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
 # IDE
 .idea/
 *.iml
@@ -22,6 +28,7 @@ dependency-reduced-pom.xml
 # 環境変数・シークレット
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 

@@ -7,6 +7,8 @@ Auth0 のカスタムデータベース接続で、**既存 Keycloak のパス�
 | ディレクトリ | 内容 |
 |---|---|
 | `api/` | Auth0 のカスタムデータベースから呼ぶ API(Java 25 / Spring Boot 4.1.2)。Keycloak の PostgreSQL スキーマを直接読み書きし、Argon2 のパスワードハッシュを検証する |
+| `auth0-scripts/` | Auth0 のカスタムデータベースのスクリプト(Login / Get User / Create / Verify / Change Password / Delete / Change Email)。`api/` を呼ぶ。詳細は [`auth0-scripts/README.md`](auth0-scripts/README.md) |
+| `sample-app/` | Keycloak(または Auth0)でログインし、Access Token と ID Token を確認する Next.js のサンプルアプリ。接続先は環境変数で切り替える。詳細は [`sample-app/README.md`](sample-app/README.md) |
 | `k8s/` | Keycloak の k8s マニフェスト(初期案)。**Terraform 管理に移行したため、参考用に残してあるだけで適用しない** |
 
 Keycloak 本体(EKS + RDS PostgreSQL)は Terraform で管理しており、その Terraform リポジトリは別ディレクトリにある。
@@ -15,7 +17,8 @@ Keycloak 本体(EKS + RDS PostgreSQL)は Terraform で管理しており、そ�
 
 - Keycloak: EKS にデプロイ済み。
 - API: ローカル(Docker の Keycloak / PostgreSQL)で動作確認済み。EKS へのデプロイは未着手。
-- Auth0 側のスクリプト: 未着手。
+- サンプルアプリ(`sample-app/`): ローカルで Keycloak へのログインと、Access Token / ID Token の表示まで確認済み。Auth0 への接続と、Docker イメージのビルドは未確認。
+- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。実際の Auth0 テナントでの動作と、API の EKS へのデプロイ(Auth0 から到達できる必要がある)は未着手。
 
 設計の詳細、調査結果、未確認事項、次のステップは `CLAUDE.md` を参照。
 

@@ -69,9 +69,55 @@ Auth0 カスタムデータベースのスクリプトから呼ぶ API。Spring 
 - **イメージのビルド**: `Dockerfile` は jar をコピーするだけ。先にホストで `mvn -DskipTests package`(下記の `MAVEN_OPTS` 付き)を実行して `target/*.jar` を作ってから `docker build` する。Docker 内で Maven を動かすと、Mac のキーチェーンにしかない CA を信頼できず PKIX エラーになるため。jar に CA の情報は入らない(実行時の信頼ストアは `eclipse-temurin:25-jre` の `cacerts`)。EKS(amd64)向けは `docker build --platform linux/amd64 --provenance=false -t <ECR>/keycloak-customdb-api:latest .`。
 - Maven Central への接続で証明書エラー(PKIX)が出る環境。`MAVEN_OPTS="-Djavax.net.ssl.trustStoreType=KeychainStore -Djavax.net.ssl.trustStore=NONE"` で macOS のキーチェーンを信頼ストアにすると解消する。
 
-## Auth0 側(未着手)
-- カスタムデータベースのアクションスクリプト 7 種類(Login / Verify / Create / Get User / Delete / Change Password / Change Email)を作る。上記 API を `X-API-Key` 付きで呼ぶ。
-- 想定: Login スクリプトは API の `/api/login` を呼び、成功したプロフィールを callback に返す。
+## サンプルアプリ (`sample-app/`)
+
+Keycloak でログインし、Access Token と ID Token を表示する Next.js のアプリ。仕様、環境変数、起動方法は `sample-app/README.md` に書いてある。**Auth0 への切り替えシナリオ**(同じアプリの認証の接続先を Keycloak から Auth0 に変える)を検証するために、接続先を環境変数で切り替えられるようにしてある。
+
+- スタック: Next.js 16.4.3(App Router)、React 19、next-auth **v4**(4.24.15)、TypeScript。Node 22。next-auth v5 は beta のため v4 を使った。
+- 画面: `/`(ログインボタン)、`/home`(ログイン後のトップ)、`/tokens`(Access Token / ID Token を raw とデコード済みで表示。署名は検証しない)。API は `/api/auth/*`(next-auth)と `/api/federated-logout`(IdP のログアウト URL を返す)。
+- 接続先の切り替え: 環境変数 `AUTH_PROVIDER`(`keycloak` | `auth0`、既定 `keycloak`)。コードは `lib/auth.ts` の 1 か所だけ。
+- 環境変数: `NEXTAUTH_URL`、`NEXTAUTH_SECRET`、Keycloak 用 `KEYCLOAK_ISSUER`(レルムまで含む)/ `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET`、Auth0 用 `AUTH0_ISSUER` / `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET`。`KEYCLOAK_ID` / `KEYCLOAK_SECRET` から改名した(旧名はコードに残っていない)。
+- **環境変数はリクエスト時に読む**(`getAuthOptions()` を関数にしてある)。モジュール読み込み時に読むと `next build` が環境変数を要求して失敗し、同じイメージで接続先を切り替えられなくなるため。`authOptions` という定数に戻さないこと。
+- ログアウトは IdP のセッションも終了する(`signOut` だけでは Keycloak / Auth0 側のセッションが残る)。
+- トークンをセッション Cookie(JWT)に入れている。トークンを見せるためのサンプルとして割り切った設計で、本番向けではない。
+- Auth0 は API の audience を指定しないと Access Token が opaque になる(デコードできない)。audience の指定は未実装。
+- `Dockerfile`(3 段階、`output: "standalone"`、非 root、ポート 3000)を用意。接続情報はすべて起動時の環境変数で渡す。
+- **確認済み**: 型チェック、環境変数なしの `next build`、standalone サーバーの起動、`/` が 200 で `Login with Keycloak` を表示、`/api/auth/providers`、未ログインの `/home` のリダイレクト。**ユーザーがローカルで Keycloak へのログインまで確認済み**(Keycloak のログイン画面に移動 → ログイン後に `/home` が表示 → `/tokens` で Access Token と ID Token が表示)。
+- **未確認**: Auth0 への接続(`AUTH_PROVIDER=auth0`)、Docker イメージのビルド(作業時に Docker が動いておらず、ユーザーからも確認の報告はまだない)、ログアウト(IdP のセッション終了)の動作、EKS 上の Keycloak への接続。
+- Mac の Docker でアプリを動かし、ローカルの Keycloak(`localhost:8081`)に繋ぐと、`KEYCLOAK_ISSUER` がブラウザとコンテナで別の名前になって動かない場合がある。EKS 上の Keycloak(公開 URL)なら起きない。
+
+## Auth0 側 (`auth0-scripts/`)
+
+Auth0 のカスタムデータベース接続の Database Action Scripts。`api/` を `X-API-Key` 付きで呼ぶ。登録方法、挙動、注意点は `auth0-scripts/README.md` に書いてある。
+
+| Auth0 のスクリプト | ファイル | 関数 | 呼ぶ API |
+|---|---|---|---|
+| Login | `login.js` | `login(identifierValue, password, callback)` | `POST /api/login` |
+| Get User | `get_user.js` | `getByEmail(identifierValue, callback)` | `GET /api/users?email=` |
+| Create | `create.js` | `create(user, callback)` | `POST /api/users` |
+| Verify | `verify.js` | `verify(email, callback)` | `POST /api/verify` |
+| Change Password | `change_password.js` | `changePassword(email, newPassword, callback)` | `POST /api/change-password` |
+| Delete | `delete.js` | `remove(id, callback)` | `DELETE /api/users/{id}` |
+| Change Email | `change_email.js` | `changeEmail(email, newEmail, verified, callback)` | `POST /api/change-email` |
+
+- シグネチャと戻り値は **Auth0 公式ドキュメントのテンプレート**(`auth0.com/docs/authenticate/database-connections/custom-db/templates/*`)に合わせた。**どのスクリプトにも `context` 引数はない**。Delete の関数名は `remove`。
+- 設定: 接続の Settings に `API_BASE_URL`(末尾の `/` なし)と `API_KEY` を登録し、`configuration.<キー>` で読む。
+- エラーの扱い: Login の 401 は `WrongUsernameOrPasswordError`(API はユーザー不在・無効・パスワード不一致を区別せず 401 を返す)。Create の 409 は `ValidationError('user_exists')`。Get User の 404 は `callback(null)`。Delete の 404 は成功扱い。Change Password / Change Email の 404(Change Email は 409 も)は `callback(null, false)`。その他のステータスや通信エラーは `Error`。
+- プロフィールの `user_id` は Keycloak のユーザー ID(UUID)。Auth0 側では `auth0|<UUID>`。Delete の `id` は `auth0|` を除いた identity の `user_id` で、Keycloak のユーザー ID と同じ値。
+- **Change Email はダッシュボードで設定できない**(Management API の `options.customScripts.change_email` か Deploy CLI)。**ダッシュボードで他のスクリプトを保存すると、登録済みの Change Email が自動的に削除される**。
+- Verify は DB のメールを確認済みにするだけで、Auth0 側の `email_verified` は変わらない。Login / Get User が返すプロフィールの `email_verified` で反映される。
+- パスワードは平文で API に送られる(Auth0 の仕様)ため、API の URL は必ず HTTPS にする。
+- **確認済み**: 構文(`node --check`)。Auth0 の実行環境を模したスタブ(`configuration`、`WrongUsernameOrPasswordError`、`ValidationError`、axios 0.22.0)とモックの API サーバーで、成功・パスワード不一致・重複・不在・接続失敗の 14 ケースが期待どおりの callback になること。
+- **未確認**: 実際の Auth0 テナントでの動作、実際の `api/` に対する呼び出し、Auth0 の実行環境で `axios@0.22.0` が使えること(ドキュメントのサンプルに合わせただけ)。
+- **Auth0 から API に到達できる必要がある**(`localhost` や VPC 内だけの URL は不可)。API を EKS にインターネットから届く形で公開するのが前提(次のステップ 3)。
+
+### API を EKS にデプロイするときの Terraform (会話内で作成。適用は未確認)
+ファイルとしてはリポジトリに残していない。構成の要点:
+- 専用の Secrets Manager シークレット(`DB_USERNAME` / `DB_PASSWORD` / `API_KEY`、キー名は環境変数名)と ExternalSecret。**ESO の IAM ロールの許可対象に、このシークレットの ARN を追加する必要がある**(追加しないと同期に失敗する)。
+- 専用の Pod SG(ALB から 8080、kubelet のプローブ用にノード SG から 8080)、専用の ALB の SG(Auth0 の送信元 IP から 443)。RDS の SG に Pod SG からの 5432、ノード SG に Pod SG からの DNS(53)を追加。`SecurityGroupPolicy` で Pod に割り当てる(`podSelector` は `app: keycloak-customdb-api`)。
+- Deployment(プローブは 8080 の `/actuator/health/*`)、Service、Ingress(ALB)。ホスト名は `keycloak-api.${var.my_domain}`(仮置き)。**ACM 証明書がこのホスト名をカバーしている必要がある**。Keycloak 用とは別の ALB が作られる。
+- **Auth0 の送信元 IP(`auth0_cidr_blocks`)は未確認**。Auth0 のドキュメントでテナントのリージョンの IP を確認すること。
+- イメージは ECR(`keycloak-customdb-api`)。ノードの IAM ロールに ECR の読み取り権限が必要。タグが `latest` のままだと、イメージ更新後に Deployment の定義が変わらず Pod が再作成されないので、`kubectl rollout restart` が必要。
 
 ## 現状
 
@@ -87,9 +133,10 @@ Auth0 カスタムデータベースのスクリプトから呼ぶ API。Spring 
 
 1. Keycloak が作った実レコードを使った自動テストを追加する(手動では確認済み)。
 2. 残りのエンドポイント(Verify / Delete / Change Password / Change Email)をローカルで確認する。Change Password の後に Keycloak のトークンエンドポイントで新しいパスワードが通ることも確認する。
-3. API を EKS にデプロイする設計(未着手): Deployment / Service、Pod 用 SG(RDS の SG に 5432 許可を追加)、ALB 経由の公開。**Auth0 から到達できる必要があるので、インターネットから届く経路と `X-API-Key` による保護が前提**(IP 制限をかけるなら Auth0 の送信元 IP を確認する)。
-4. Auth0 のカスタムデータベースのスクリプト 7 種類を作る。
-5. 実際の Auth0 テナントで、既存 Keycloak ユーザーのパスワードでログインできるか検証する。
+3. API を EKS にデプロイする(Terraform は会話内で作成済みだが、適用・動作は未確認。上の「API を EKS にデプロイするときの Terraform」参照)。**Auth0 から到達できる必要があるので、インターネットから届く経路と `X-API-Key` による保護が前提**(IP 制限をかけるなら Auth0 の送信元 IP を確認する)。
+4. Auth0 のテナントに接続を作り、`auth0-scripts/` のスクリプトを登録する(Change Email は Management API か Deploy CLI)。Settings に `API_BASE_URL` と `API_KEY` を設定する。
+5. 実際の Auth0 テナントで、既存 Keycloak ユーザーのパスワードでログインできるか検証する(このプロジェクトの目的)。
+6. `sample-app/` の接続先を Auth0 に切り替えて、同じアプリでログインできるか確認する。
 
 ## 設計方針
 
