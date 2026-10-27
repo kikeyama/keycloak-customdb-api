@@ -54,6 +54,24 @@ Auth0 カスタムデータベースのスクリプトから呼ぶ API。Spring 
 - メールアドレスは小文字に正規化。
 - ポートは 8080(管理用ポートは分けない)。Actuator でプローブ用エンドポイントを公開(API キー不要): liveness `/actuator/health/liveness`(DB を含めない)、readiness `/actuator/health/readiness`(`db` を含む = RDS に繋がるまでトラフィックを受けない)。Deployment のプローブは `httpGet` でポート 8080。
 
+### 監査ログ (`AuditLog`)
+認証の成否と API キーの拒否を、専用ロガー `audit`(1 行 1 イベント、`key=value` 形式)で出す。ログイン成功は INFO、失敗・拒否は WARN。
+
+```
+event=login result=success username=a@example.com user_id=<Keycloak の ID> client_ip=203.0.113.5
+event=login result=failure reason=PASSWORD_MISMATCH username=a@example.com client_ip=203.0.113.5
+event=api_key result=rejected reason=API_KEY_MISMATCH method=POST path=/api/login client_ip=203.0.113.5
+event=create_user result=failure:user_exists username=a@example.com client_ip=...
+```
+- ログインの失敗理由(`reason`): `USER_NOT_FOUND` / `USER_DISABLED` / `NO_PASSWORD_CREDENTIAL` / `PASSWORD_MISMATCH` / `UNSUPPORTED_ALGORITHM`(argon2 以外) / `INVALID_RECORD`(保存されたハッシュが読めない)。API キーの拒否: `API_KEY_MISSING` / `API_KEY_MISMATCH`。
+- **理由はログにだけ出し、レスポンスは常に同じ 401**。レスポンスに出すと、ユーザーの存在を外部から調べられる(アカウント列挙)。Auth0 の `Wrong email or password` の原因を切り分けるときは、API のログの `reason` を見る。
+- ログイン以外(`create_user` / `verify` / `get_user` / `change_password` / `change_email` / `delete_user`)も、成功とユーザー不在などの失敗を `operation` として出す。
+- **記録しない**: パスワード、受け取った API キーの値(テストで確認済み)。
+- `client_ip` は `X-Forwarded-For` の先頭(ALB の背後なのでクライアントの IP)。ヘッダーは送信側が偽装できるので、監査では参考値。
+- ユーザー名は外部から来る値なので、制御文字(改行など)を `_` に置換し、200 文字に切り詰める(偽のログ行を作られないため。テストで確認済み)。
+- 確認するコマンド: `kubectl -n keycloak logs deploy/keycloak-customdb-api | grep "audit"`。
+- テスト: `AuditLogTest`(ログの形式、改行の無害化、キーを含まないこと)と `LoginAuditFlowTest`(フィルター + コントローラーを通した成功・パスワード違い・ユーザー不在・API キー違い・API キー無し)。`mvn test` は 14 件成功。**実際の API を起動してのログ出力は未確認**。
+
 ### API の未確認事項
 - **読み取り側の互換性は確認済み**: Keycloak が作ったレコードで `/api/login` が成功した(Argon2 のパラメータ、salt、Base64 の扱いは一致)。
 - **書き込み側の互換性は確認済み**: API の `POST /api/users` で作ったユーザーで、Keycloak のトークンエンドポイントが `access_token` を返した。`credential_data` のキー名(`additionalParameters`)は Keycloak に読まれている(ソースの `PasswordCredentialData` の `@JsonProperty` は `algorithmData` で、なぜ読めるかは未調査)。

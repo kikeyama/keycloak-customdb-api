@@ -7,6 +7,10 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+logging:
+  level:
+    audit: INFO   # 認証の成否などの監査ログ (ロガー名 "audit")。成功は INFO、失敗・拒否は WARN
+
 management:
   endpoints:
     web:

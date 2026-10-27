@@ -60,6 +60,19 @@ public class KeycloakPasswordHasher {
     }
 
     public boolean verify(String rawPassword, String credentialDataJson, String secretDataJson) {
+        return verifyDetailed(rawPassword, credentialDataJson, secretDataJson) == Result.MATCH;
+    }
+
+    /** 検証の結果。ログで「パスワード不一致」と「検証できなかった」を区別するために使う。 */
+    public enum Result {
+        MATCH,
+        MISMATCH,
+        UNSUPPORTED_ALGORITHM,
+        /** 保存されたデータが読めない (JSON の形式、パラメータ欠落など) */
+        INVALID_RECORD
+    }
+
+    public Result verifyDetailed(String rawPassword, String credentialDataJson, String secretDataJson) {
         try {
             JsonNode credentialData = mapper.readTree(credentialDataJson);
             JsonNode secretData = mapper.readTree(secretDataJson);
@@ -67,7 +80,7 @@ public class KeycloakPasswordHasher {
             String algorithm = credentialData.path("algorithm").asText();
             if (!"argon2".equals(algorithm)) {
                 log.warn("Unsupported password algorithm: {}", algorithm);
-                return false;
+                return Result.UNSUPPORTED_ALGORITHM;
             }
 
             // 書き出し時のキーは additionalParameters。読み込み用のコンストラクタは algorithmData。両方に対応する。
@@ -84,12 +97,13 @@ public class KeycloakPasswordHasher {
                     Integer.parseInt(first(params, "memory")),
                     credentialData.path("hashIterations").asInt());
 
-            return MessageDigest.isEqual(
+            boolean match = MessageDigest.isEqual(
                     actual.getBytes(StandardCharsets.UTF_8),
                     secretData.path("value").asText().getBytes(StandardCharsets.UTF_8));
+            return match ? Result.MATCH : Result.MISMATCH;
         } catch (RuntimeException e) { // Jackson 3 の JacksonException は非検査例外
             log.warn("Could not verify password: {}", e.toString());
-            return false;
+            return Result.INVALID_RECORD;
         }
     }
 

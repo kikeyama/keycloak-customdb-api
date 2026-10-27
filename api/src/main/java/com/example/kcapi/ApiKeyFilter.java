@@ -29,8 +29,13 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String provided = request.getHeader("X-API-Key");
-        if (provided == null
-                || !MessageDigest.isEqual(provided.getBytes(StandardCharsets.UTF_8), expected)) {
+        if (provided == null) {
+            AuditLog.apiKeyRejected(request, AuditLog.Reason.API_KEY_MISSING);
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
+        if (!MessageDigest.isEqual(provided.getBytes(StandardCharsets.UTF_8), expected)) {
+            AuditLog.apiKeyRejected(request, AuditLog.Reason.API_KEY_MISMATCH);
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
