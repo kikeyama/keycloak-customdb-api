@@ -51,6 +51,8 @@ Auth0 のカスタムデータベース接続(Database Action Scripts)のスク�
 
 返すプロフィールの `user_id` は、Keycloak のユーザー ID(UUID)。Auth0 側では `auth0|<UUID>` になる。
 
+**プロフィールの `username` は、メール形式のときは API が返さない。** Auth0 は、`username` にメールアドレスの形式の値を入れると `"username" cannot be an email address.` で拒否し、ログインが `Wrong email or password` になる(Auth0 のテナントログでは `type: fu`)。API が success を返していても起きる。スクリプトは API のレスポンスをそのまま `callback(null, res.data)` に渡すので、この対応は API 側で行っている。
+
 ## 確認の状況
 
 - 7 つのスクリプトが構文として読み込めること(`node --check`)。

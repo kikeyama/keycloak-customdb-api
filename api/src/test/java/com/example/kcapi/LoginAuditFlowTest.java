@@ -84,6 +84,20 @@ class LoginAuditFlowTest {
     }
 
     @Test
+    void loginResponseHasNoEmailShapedUsername_becauseAuth0RejectsIt() throws Exception {
+        // setUp のユーザーは username がメールアドレス (Keycloak でメールをユーザー名にしている場合)
+        var response = mvc.perform(post("/api/login").contentType(MediaType.APPLICATION_JSON)
+                        .header("X-API-Key", API_KEY)
+                        .content("{\"email\":\"a@example.com\",\"password\":\"correct-password\"}"))
+                .andReturn().getResponse();
+        assertEquals(200, response.getStatus());
+        String body = response.getContentAsString();
+        assertFalse(body.contains("\"username\""), body);
+        assertTrue(body.contains("\"user_id\":\"kc-1\""), body);
+        assertTrue(body.contains("\"email\":\"a@example.com\""), body);
+    }
+
+    @Test
     void wrongPasswordIsLoggedAsPasswordMismatch_butResponseDoesNotSayWhy() throws Exception {
         assertEquals(401, login(API_KEY, "a@example.com", "wrong"));
         assertEquals(List.of("event=login result=failure reason=PASSWORD_MISMATCH username=a@example.com client_ip=203.0.113.9"),

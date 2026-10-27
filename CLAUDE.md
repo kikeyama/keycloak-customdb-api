@@ -52,6 +52,7 @@ Auth0 カスタムデータベースのスクリプトから呼ぶ API。Spring 
 
 - 検証は `algorithm = argon2` のレコードのみ対応。それ以外は false。新規作成は Keycloak 既定値(`id`、1.3、7168 KB、5 回、並列度 1、hashLength 32)。
 - メールアドレスは小文字に正規化。
+- **プロフィールの `username` は、メール形式(`@` を含む)のときは返さない**。Auth0 は、カスタムデータベースが返すプロフィールの `username` にメール形式の値を入れると、`"username" cannot be an email address.` で拒否する(テナントログ `type: fu`、画面には `Wrong email or password` と出る)。API 側のログインが success でも、これで Auth0 が失敗する。Keycloak ではメールアドレスをユーザー名にしていることが多く、`username` カラムにメールが入っているため。`AuthController.profile()` の 1 か所で処理し、Login と Get User で同じ形式を返す(Auth0 の仕様)。メール形式でないユーザー名は返す。この接続は「Requires Username」が無効(ユーザー確認済み)。
 - ポートは 8080(管理用ポートは分けない)。Actuator でプローブ用エンドポイントを公開(API キー不要): liveness `/actuator/health/liveness`(DB を含めない)、readiness `/actuator/health/readiness`(`db` を含む = RDS に繋がるまでトラフィックを受けない)。Deployment のプローブは `httpGet` でポート 8080。
 
 ### 監査ログ (`AuditLog`)
@@ -70,7 +71,9 @@ event=create_user result=failure:user_exists username=a@example.com client_ip=..
 - `client_ip` は `X-Forwarded-For` の先頭(ALB の背後なのでクライアントの IP)。ヘッダーは送信側が偽装できるので、監査では参考値。
 - ユーザー名は外部から来る値なので、制御文字(改行など)を `_` に置換し、200 文字に切り詰める(偽のログ行を作られないため。テストで確認済み)。
 - 確認するコマンド: `kubectl -n keycloak logs deploy/keycloak-customdb-api | grep "audit"`。
-- テスト: `AuditLogTest`(ログの形式、改行の無害化、キーを含まないこと)と `LoginAuditFlowTest`(フィルター + コントローラーを通した成功・パスワード違い・ユーザー不在・API キー違い・API キー無し)。`mvn test` は 14 件成功。**実際の API を起動してのログ出力は未確認**。
+- テスト: `AuditLogTest`(ログの形式、改行の無害化、キーを含まないこと)と `LoginAuditFlowTest`(フィルター + コントローラーを通した成功・パスワード違い・ユーザー不在・API キー違い・API キー無し)。`mvn test` は 20 件成功(`ProfileTest` を含む)。**実際の API を起動してのログ出力は未確認**。
+
+**Auth0 の `Wrong email or password` の原因(解決済みの調査)**: API は success を返していたが、Auth0 のテナントログ(`type: fu`)の `description` が `"username" cannot be an email address.` だった。原因は上の `username` の件。修正を入れたが、**デプロイ後の Auth0 でのログインは未確認**。
 
 ### API の未確認事項
 - **読み取り側の互換性は確認済み**: Keycloak が作ったレコードで `/api/login` が成功した(Argon2 のパラメータ、salt、Base64 の扱いは一致)。

@@ -174,14 +174,25 @@ public class AuthController {
     }
 
     /** Auth0 のスクリプトが callback に渡すプロフィール形式。 */
-    private static Map<String, Object> profile(UserRow user) {
+    static Map<String, Object> profile(UserRow user) {
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("user_id", user.id());
         profile.put("email", user.email());
         profile.put("email_verified", user.emailVerified());
-        profile.put("username", user.username());
+        // Auth0 は、プロフィールの username にメールアドレスの形式の値を入れることを拒否する
+        // ("username" cannot be an email address.)。Keycloak ではメールアドレスをユーザー名にしている
+        // ことが多いので、メール形式のときは username を返さない。
+        // Login と Get User で同じ形式を返す必要があるため、profile() の 1 か所で扱う。
+        if (isUsableAsAuth0Username(user.username())) {
+            profile.put("username", user.username());
+        }
         profile.put("given_name", user.firstName());
         profile.put("family_name", user.lastName());
         return profile;
+    }
+
+    /** username として返してよいか。空、またはメールアドレスの形式 ("@" を含む) なら返さない。 */
+    static boolean isUsableAsAuth0Username(String username) {
+        return username != null && !username.isBlank() && !username.contains("@");
     }
 }

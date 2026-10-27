@@ -18,7 +18,7 @@ Keycloak 本体(EKS + RDS PostgreSQL)は Terraform で管理しており、そ�
 - Keycloak: EKS にデプロイ済み。
 - API: ローカル(Docker の Keycloak / PostgreSQL)で動作確認済み。**EKS にもデプロイ済み**で、`https://keycloak-customdb-api.a0japan.solutions` に対する `POST /api/login` の curl が成功することを確認済み。
 - サンプルアプリ(`sample-app/`): ローカルで Keycloak へのログインと、Access Token / ID Token の表示まで確認済み。Auth0 への接続と、Docker イメージのビルドは未確認。
-- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。Auth0 のカスタムデータベース接続でログインを試したところ、`Wrong email or password` になった。原因は切り分け中(API の監査ログで `reason` を確認する。下記「監査ログ」参照)。
+- Auth0 側のスクリプト(`auth0-scripts/`): 7 種類を作成し、モックの API に対する動作は確認済み。Auth0 のカスタムデータベース接続でログインを試したところ、API は success を返すのに `Wrong email or password` になった。**原因は、API が返すプロフィールの `username` がメールアドレスだったこと**(Auth0 のテナントログ: `"username" cannot be an email address.`)。`username` がメール形式のときは返さないように修正した。**修正を入れたイメージをデプロイしての、Auth0 でのログインは未確認**。
 
 設計の詳細、調査結果、未確認事項、次のステップは `CLAUDE.md` を参照。
 
@@ -206,8 +206,11 @@ kubectl -n keycloak logs deploy/keycloak-customdb-api -f | grep audit     # 流�
 
 ### Auth0 の `Wrong email or password` の切り分け
 
+**まず Auth0 のテナントログ(Monitoring > Logs)の `type` と `description` を見る。** API のログが success でも、Auth0 がプロフィールを拒否して失敗することがある。実際にあった例: `type: fu`、`description: "username" cannot be an email address.`(API が返すプロフィールの `username` がメール形式だった。修正済み)。
+
 | ログの状態 | 原因 |
 |---|---|
+| API は success、Auth0 のテナントログが `fu` で `description` にプロフィールの指摘 | API が返すプロフィールを Auth0 が拒否している(`username` がメール形式、など) |
 | **1 行も出ない** | Auth0 から API に届いていない(Auth0 の Settings の `API_BASE_URL`、Ingress、SG、Auth0 の送信元 IP の許可) |
 | `API_KEY_MISMATCH` / `API_KEY_MISSING` | Auth0 の Settings の `API_KEY` が API の `API_KEY` と違う |
 | `USER_NOT_FOUND` | Auth0 が渡す identifier が想定と違う |
