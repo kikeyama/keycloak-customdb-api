@@ -53,6 +53,8 @@ Auth0 のカスタムデータベース接続(Database Action Scripts)のスク�
 
 **プロフィールの `username` は、メール形式のときは API が返さない。** Auth0 は、`username` にメールアドレスの形式の値を入れると `"username" cannot be an email address.` で拒否し、ログインが `Wrong email or password` になる(Auth0 のテナントログでは `type: fu`)。API が success を返していても起きる。スクリプトは API のレスポンスをそのまま `callback(null, res.data)` に渡すので、この対応は API 側で行っている。
 
+**プロフィールの文字列の項目が null だと、Auth0 は拒否する。** サインアップでは名前を入力しないので、`given_name` / `family_name` は DB では null になり、Auth0 のテナントログ(`type: fs`)に `DB Custom script (login): invalid fields ... Expected type string but found type null on property family_name` と出る。API は、値のない項目をキーごと省いて返す。サインアップでは、作成のあとに Auth0 が Login スクリプトを呼び、その戻り値を検証するため、**Create が成功しても、Login の戻り値が不正だとサインアップは失敗する**。
+
 ## 確認の状況
 
 - 7 つのスクリプトが構文として読み込めること(`node --check`)。

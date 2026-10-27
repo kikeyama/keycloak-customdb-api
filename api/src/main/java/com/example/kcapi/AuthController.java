@@ -177,18 +177,28 @@ public class AuthController {
     static Map<String, Object> profile(UserRow user) {
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("user_id", user.id());
-        profile.put("email", user.email());
         profile.put("email_verified", user.emailVerified());
-        // Auth0 は、プロフィールの username にメールアドレスの形式の値を入れることを拒否する
+        // Auth0 は、プロフィールの文字列の項目が null だと拒否する
+        // ("Expected type string but found type null" on given_name / family_name)。
+        // サインアップでは名前を入力しないので、DB では null になる。
+        // 値がある項目だけを入れ、null や空の項目はキーごと省く。
+        putIfPresent(profile, "email", user.email());
+        putIfPresent(profile, "given_name", user.firstName());
+        putIfPresent(profile, "family_name", user.lastName());
+        // username にメールアドレスの形式の値を入れることも拒否される
         // ("username" cannot be an email address.)。Keycloak ではメールアドレスをユーザー名にしている
         // ことが多いので、メール形式のときは username を返さない。
-        // Login と Get User で同じ形式を返す必要があるため、profile() の 1 か所で扱う。
         if (isUsableAsAuth0Username(user.username())) {
             profile.put("username", user.username());
         }
-        profile.put("given_name", user.firstName());
-        profile.put("family_name", user.lastName());
+        // Login と Get User で同じ形式を返す必要があるため、profile() の 1 か所で扱う。
         return profile;
+    }
+
+    private static void putIfPresent(Map<String, Object> profile, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            profile.put(key, value);
+        }
     }
 
     /** username として返してよいか。空、またはメールアドレスの形式 ("@" を含む) なら返さない。 */
